@@ -1,0 +1,5 @@
+.\bin\openocd.exe -f interface/cmsis-dap.cfg -f target/stm32f4x.cfg -c "program E:/STM32F407/TOUCH/Debug/TOUCH.elf verify reset exit"
+
+cd "D:\Program Files (x86)\xpack-openocd-0.12.0-6-win32-x64\xpack-openocd-0.12.0-6"
+
+ D:\Program Files (x86)\xpack-openocd-0.12.0-6-win32-x64\xpack-openocd-0.12.0-6> .\bin\openocd.exe -f interface/cmsis-dap.cfg -f target/stm32f4x.cfg -c "program E:/STM32F407/TOUCH/Debug/TOUCH.elf verify reset exit"
