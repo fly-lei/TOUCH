@@ -27,5 +27,6 @@ Core/Startup \
 Drivers/STM32F4xx_HAL_Driver/Src \
 qpc/ports/arm-cm/qv/gnu \
 qpc/src/qf \
+qpc/src/qs \
 qpc/src/qv \
 

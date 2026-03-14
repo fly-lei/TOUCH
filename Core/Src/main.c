@@ -29,10 +29,7 @@
 #include "blinky.h"
 #include <stdarg.h>
 #include <string.h>
-#define Q_SPY
-//#ifdef Q_SPY
-//#error "Q_SPY IS ALIVE!!! 如果您在控制台看到这行报错，说明宏配置成功了！"
-//#endif
+
 void UART_Log(const char *fmt, ...) {
 /* 如果开启了 QS 透视功能，就让传统的纯文本打印自动静音，防止污染 QS 二进制数据流！ */
 #ifndef Q_SPY
@@ -241,41 +238,39 @@ int main(void)
   /* USER CODE BEGIN 2 */
 
     /* 刚进 main，先发个开机信号 */
-    HAL_UART_Transmit(&huart1, (uint8_t *)"\r\n\r\n>>> SYSTEM RESTART <<<\r\n", 28, 100);
+    //HAL_UART_Transmit(&huart1, (uint8_t *)"\r\n\r\n>>> SYSTEM RESTART <<<\r\n", 28, 100);
 
     HAL_Delay(100);
     ILI9341_Init();
     LCD_Clear(RED);
-    HAL_UART_Transmit(&huart1, (uint8_t *)"> LCD Init OK\r\n", 15, 100);
+   // HAL_UART_Transmit(&huart1, (uint8_t *)"> LCD Init OK\r\n", 15, 100);
 
     /* 测试 QF_init */
     QF_init();
-    HAL_UART_Transmit(&huart1, (uint8_t *)"> QF_init OK\r\n", 14, 100);
+   // HAL_UART_Transmit(&huart1, (uint8_t *)"> QF_init OK\r\n", 14, 100);
 
   #ifdef Q_SPY
     /* 测试 QS_INIT */
-    HAL_UART_Transmit(&huart1, (uint8_t *)"> Ready for QS_INIT\r\n", 21, 100);
+    //HAL_UART_Transmit(&huart1, (uint8_t *)"> Ready for QS_INIT\r\n", 21, 100);
     if (!QS_INIT((void *)0)) {
-        HAL_UART_Transmit(&huart1, (uint8_t *)"!!! QS_INIT FAILED !!!\r\n", 24, 100);
+       // HAL_UART_Transmit(&huart1, (uint8_t *)"!!! QS_INIT FAILED !!!\r\n", 24, 100);
         Error_Handler();
     }
-    HAL_UART_Transmit(&huart1, (uint8_t *)"> QS_INIT OK\r\n", 14, 100);
+   // HAL_UART_Transmit(&huart1, (uint8_t *)"> QS_INIT OK\r\n", 14, 100);
   #endif
 
     /* 测试内存池和构造 */
     QF_poolInit(l_smlPoolSto, sizeof(l_smlPoolSto), sizeof(l_smlPoolSto[0]));
     Blinky_ctor();
-    HAL_UART_Transmit(&huart1, (uint8_t *)"> Ctor OK\r\n", 11, 100);
+    //HAL_UART_Transmit(&huart1, (uint8_t *)"> Ctor OK\r\n", 11, 100);
 
     /* 测试状态机启动 */
     QACTIVE_START(AO_Blinky, 1U, l_blinkyQSto, Q_DIM(l_blinkyQSto), (void *)0, 0U, (void *)0);
-    HAL_UART_Transmit(&huart1, (uint8_t *)"> Active Start OK\r\n", 19, 100);
+    //HAL_UART_Transmit(&huart1, (uint8_t *)"> Active Start OK\r\n", 19, 100);
 
-    HAL_UART_Transmit(&huart1, (uint8_t *)"> Entering QF_run...\r\n", 22, 100);
+   // HAL_UART_Transmit(&huart1, (uint8_t *)"> Entering QF_run...\r\n", 22, 100);
     return QF_run();
 
-    /* USER CODE END 2 */
-    /* USER CODE END 2 */
   /* USER CODE END 2 */
 
   /* Infinite loop */

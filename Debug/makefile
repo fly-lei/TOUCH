@@ -10,6 +10,7 @@ RM := rm -rf
 # All of the sources participating in the build are defined here
 -include sources.mk
 -include qpc/src/qv/subdir.mk
+-include qpc/src/qs/subdir.mk
 -include qpc/src/qf/subdir.mk
 -include qpc/ports/arm-cm/qv/gnu/subdir.mk
 -include Drivers/STM32F4xx_HAL_Driver/Src/subdir.mk

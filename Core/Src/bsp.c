@@ -1,7 +1,8 @@
-/* Core/Src/bsp.c */
-#include "qpc.h"
+
+#include "usart.h"
 #include "blinky.h"
 #include "stm32f4xx_hal.h"
+
 /* USER CODE BEGIN 4 */
 /* 映射公式: (原始值 - 最小值) * 目标范围 / (最大值 - 最小值) */
 // 这里假设 X 和 Y 的原始值范围大约在 200 到 3800 之间（具体需看您的打印）
@@ -14,10 +15,23 @@
 //    /* 注意：在完全调试通之前，这里绝对不要加 __WFI() 或任何代码！ */
 //}
 void QV_onIdle(void) {
-    QF_INT_ENABLE(); // 必须开中断
-    UART_Log("Enter OFF State\r\n");
-    // 暂时把里面发数据的代码全注释掉，只留下睡觉指令
+    QF_INT_ENABLE();
+
+#ifdef Q_SPY
+    uint8_t const *block;
+    uint16_t len;
+    extern UART_HandleTypeDef huart1;
+   // char aaa[]="hello wo";
+    //HAL_UART_Transmit(&huart1, (uint8_t *)aaa, 5, 100);
+    /* ⚠️ 极其关键的 API 升级：指针和长度的位置互换了！ */
+    /* block 接收返回值，&len 作为参数传进去 */
+    while ((block = QS_getBlock(&len)) != (uint8_t const *)0) {
+
+        HAL_UART_Transmit(&huart1, (uint8_t *)block, len, 100);
+    }
+#else
     __WFI();
+#endif
 }
 /* USER CODE END 4 */
 
@@ -78,16 +92,19 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 
     }
     if (GPIO_Pin == GPIO_PIN_4) {
+
+
+
            static uint32_t last_btn_time = 0;
            uint32_t current_time = HAL_GetTick();
 
            /* 200ms 防抖锁：防住物理按键的弹片抖动 */
-           if ((current_time - last_btn_time) > 200) {
+           if ((current_time - last_btn_time) > 100) {
                last_btn_time = current_time;
+               static QEvt const touchEvt =QEVT_INITIALIZER(TOUCH_SIG);
+                   	 QACTIVE_POST(AO_Blinky, &touchEvt, 0U);
 
                //static QEvt const touchEvt = { TOUCH_SIG, 0U, 0U };
-               static QEvt const touchEvt =QEVT_INITIALIZER(TOUCH_SIG);
-               QACTIVE_POST(AO_Blinky, &touchEvt, 0U);
 
            }
 
@@ -103,37 +120,35 @@ QSTimeCtr QS_onGetTime(void) {
     return (QSTimeCtr)HAL_GetTick();
 }
 
-/* 2. QS 启动配置 */
-void QS_onStartup(void const *arg) {
-    static uint8_t qsTxBuf[1024]; /* 必须给 QS 分配一块内存做发送缓存 */
+/* 2. QS 启动配置 *//* 1. 把 void 改成 uint8_t */
+uint8_t QS_onStartup(void const *arg) {
+    static uint8_t qsTxBuf[1024];
     QS_initBuf(qsTxBuf, sizeof(qsTxBuf));
 
-    /* 开启最高级别的监视：监控所有状态跳转和队列动作！ */
     QS_GLB_FILTER(QS_ALL_RECORDS);
-
-    /* 【字典翻译】：教 QS 认识您的信号名字，否则电脑上只会显示冰冷的数字 */
+    QS_GLB_FILTER(-QS_QF_TICK);
     QS_SIG_DICTIONARY(TIMEOUT_SIG, (void *)0);
+    QS_SIG_DICTIONARY(TIMEOUT1_SIG, (void *)0);
     QS_SIG_DICTIONARY(TOUCH_SIG,   (void *)0);
     QS_SIG_DICTIONARY(BTN_PA1_SIG, (void *)0);
 
-    /* 教 QS 认识您的状态机名字 */
-    QS_OBJ_DICTIONARY(AO_Blinky);
-    QS_FUN_DICTIONARY(&Blinky_on);
-    QS_FUN_DICTIONARY(&Blinky_off);
+    /* 2. 加上这句，告诉框架初始化成功！ */
+    return 1U;
 }
-/* USER CODE BEGIN 4 */
-
 void QS_onFlush(void) {
     uint16_t b;
     /* ⚠️ 此时全局中断已关，SysTick 已死，绝对不能用 HAL_UART_Transmit！ */
-    while ((b = QS_getByte()) != QS_EOD) {
-        /* 死等发送寄存器(SR)的 TXE 标志位变为空 */
-        while ((USART1->SR & USART_SR_TXE) == 0) {
+    /* 修复：将 QS_EOD 替换为 0xFFFF (或新版本的 QS_EOF) */
+    while ((b = QS_getByte()) != 0xFFFF) {
+        /* 死等发送寄存器(SR)的 第7位 (TXE) 变为空 */
+        while ((USART1->SR & (1 << 7)) == 0) {
         }
         /* 把字节直接砸进数据寄存器(DR) */
         USART1->DR = (uint8_t)b;
     }
 }
+
+/* USER CODE END 4 */
 
 /* USER CODE END 4 */
 

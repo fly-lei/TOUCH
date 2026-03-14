@@ -82,8 +82,7 @@ void NMI_Handler(void)
 
 /**
   * @brief This function handles Hard fault interrupt.
-  *//* stm32f4xx_it.c 里的代码 */
-
+  */
 void HardFault_Handler(void)
 {
   /* USER CODE BEGIN HardFault_IRQn 0 */
@@ -97,7 +96,6 @@ void HardFault_Handler(void)
       USART1->DR = msg[i];
   }
   /* USER CODE END HardFault_IRQn 0 */
-
   while (1)
   {
     /* USER CODE BEGIN W1_HardFault_IRQn 0 */
@@ -195,13 +193,13 @@ void PendSV_Handler(void)
 void SysTick_Handler(void)
 {
   /* USER CODE BEGIN SysTick_IRQn 0 */
-  //QTIMEEVT_TICK_X(0U, &l_SysTick_Handler);
 
-	// 只有当框架准备好后，才向框架注入心跳！
-	  if (g_qf_ready == 1) {
-	      QTIMEEVT_TICK_X(0U, (void *)0);
-	  }
-  //QTIMEEVT_TICK_X(0U, (void *)0);
+    /* * 直接调用 QTIMEEVT_TICK_X 是安全的。
+     * 第二个参数 (void *)0 代表“任务级别”的心跳。
+     * 如果你没定义自己的处理对象，传 (void *)0 是最标准的做法。
+     */
+    QTIMEEVT_TICK_X(0U, (void *)0);
+
   /* USER CODE END SysTick_IRQn 0 */
   HAL_IncTick();
   /* USER CODE BEGIN SysTick_IRQn 1 */

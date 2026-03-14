@@ -43,9 +43,7 @@
 #ifndef QS_H_
 #define QS_H_
 
-#ifndef Q_SPY
-#error "Q_SPY must be defined to include qs.h"
-#endif
+
 
 //============================================================================
 //! @cond INTERNAL
