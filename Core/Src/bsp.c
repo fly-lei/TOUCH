@@ -2,6 +2,8 @@
 #include "usart.h"
 #include "blinky.h"
 #include "stm32f4xx_hal.h"
+#include "signals.h"
+#include "ILI9341.h"
 
 /* USER CODE BEGIN 4 */
 /* 映射公式: (原始值 - 最小值) * 目标范围 / (最大值 - 最小值) */
@@ -87,39 +89,50 @@ void Q_onError(char const * const module, int loc) {
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 
-    if (GPIO_Pin == GPIO_PIN_1) {
 
 
-            /* 【完美吸收官方写法】：使用官方宏初始化静态事件！杜绝结构体内存未对齐问题 */
-            static QEvt const btnEvt = QEVT_INITIALIZER(BTN_PA1_SIG);
+	    /* 1. 全局防抖锁：防止机械按键弹片抖动导致一次按下触发十几次中断 */
+	    static uint32_t last_btn_time = 0;
+	    uint32_t current_time = HAL_GetTick();
 
-            /* 安全投递，第三个参数填 0U (无 QP Spy 追踪) 即可 */
-            QACTIVE_POST(AO_Blinky, &btnEvt, 0U);
+	    if ((current_time - last_btn_time) > 200) { /* 200ms 防抖 */
 
+	        uint8_t valid_press = 0;
 
-        /* 彻底清除中断标志，并且做一次总线同步（达到官方 ERRATUM 补丁的效果） */
+	        /* 2. 物理引脚映射到 UI 导航信号 */
+	        if (GPIO_Pin == GPIO_PIN_0) { /* 假设 PA0 是“向下切换”按键 */
+	            static QEvt const navDownEvt = QEVT_INITIALIZER(NAV_DOWN_SIG);
+	            QACTIVE_POST(AO_Gui, &navDownEvt, 0U); /* 直接发给 GUI 部门！ */
+	            valid_press = 1;
+	        }
+	        else if (GPIO_Pin == GPIO_PIN_1) { /* 假设 PA1 依然是“计分按键” */
+	            static QEvt const btnEvt = QEVT_INITIALIZER(BTN_PRESSED_SIG);
+	            QACTIVE_POST(AO_App, &btnEvt, 0U);     /* 发给大脑部门去算数！ */
+	            valid_press = 1;
+	        }
+	        else if (GPIO_Pin == GPIO_PIN_4) { /* 假设 PE2 是“确认进入”按键 */
+	            static QEvt const navEnterEvt = QEVT_INITIALIZER(NAV_ENTER_SIG);
+	            QACTIVE_POST(AO_Gui, &navEnterEvt, 0U);
+	            valid_press = 1;
+	        }
+	        else if (GPIO_Pin == GPIO_PIN_3) { /* 假设 PE3 是“返回/退出”按键 */
+	            static QEvt const navBackEvt = QEVT_INITIALIZER(NAV_BACK_SIG);
+	            QACTIVE_POST(AO_Gui, &navBackEvt, 0U);
+	            valid_press = 1;
+	        }
 
-    }
-    if (GPIO_Pin == GPIO_PIN_4) {
-
-
-
-           static uint32_t last_btn_time = 0;
-           uint32_t current_time = HAL_GetTick();
-
-           /* 200ms 防抖锁：防住物理按键的弹片抖动 */
-           if ((current_time - last_btn_time) > 100) {
-               last_btn_time = current_time;
-               static QEvt const touchEvt =QEVT_INITIALIZER(TOUCH_SIG);
-                   	 QACTIVE_POST(AO_Blinky, &touchEvt, 0U);
-
-               //static QEvt const touchEvt = { TOUCH_SIG, 0U, 0U };
-
-           }
-
-       }
-
+	        /* 如果确实按下了有效按键，更新防抖时间 */
+	        if (valid_press) {
+	            last_btn_time = current_time;
+	        }
+	    }
 }
+
+
+
+
+
+
 /* USER CODE BEGIN 4 */
 
 #ifdef Q_SPY
@@ -131,18 +144,26 @@ QSTimeCtr QS_onGetTime(void) {
 
 /* 2. QS 启动配置 *//* 1. 把 void 改成 uint8_t */
 uint8_t QS_onStartup(void const *arg) {
-    static uint8_t qsTxBuf[1024];
-    QS_initBuf(qsTxBuf, sizeof(qsTxBuf));
+    /* ... 前面的初始化 ... */
+	 static uint8_t qsTxBuf[1024];
+	    QS_initBuf(qsTxBuf, sizeof(qsTxBuf));
 
-    QS_GLB_FILTER(QS_ALL_RECORDS);
-    QS_GLB_FILTER(-QS_QF_TICK);
-    QS_SIG_DICTIONARY(TIMEOUT_SIG, (void *)0);
-    QS_SIG_DICTIONARY(TIMEOUT1_SIG, (void *)0);
-    QS_SIG_DICTIONARY(TOUCH_SIG,   (void *)0);
-    QS_SIG_DICTIONARY(BTN_PA1_SIG, (void *)0);
+	    QS_GLB_FILTER(QS_ALL_RECORDS);
+	    QS_GLB_FILTER(-QS_QF_TICK);
+    /* 原来的字典 */
+    QS_SIG_DICTIONARY(BTN_PRESSED_SIG, (void *)0);
+    QS_SIG_DICTIONARY(TOUCH_DETECTED_SIG, (void *)0);
+    QS_SIG_DICTIONARY(UI_UPDATE_COUNT_SIG, (void *)0);
 
-    /* 2. 加上这句，告诉框架初始化成功！ */
-    return 1U;
+    /* 👇 新增的 UI 导航字典 */
+    QS_SIG_DICTIONARY(NAV_UP_SIG, (void *)0);
+    QS_SIG_DICTIONARY(NAV_DOWN_SIG, (void *)0);
+    QS_SIG_DICTIONARY(NAV_ENTER_SIG, (void *)0);
+    QS_SIG_DICTIONARY(NAV_BACK_SIG, (void *)0);
+
+    /* 2. 极其关键：告诉框架，QS 追踪器启动成功！ */
+        return 1U;
+    /* ... */
 }
 void QS_onFlush(void) {
     uint16_t b;

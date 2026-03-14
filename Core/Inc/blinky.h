@@ -9,7 +9,7 @@ enum BlinkySignals {
 	TOUCH_SIG,
 	TIMEOUT1_SIG,
 	BTN_PA1_SIG,
-    MAX_PUB_SIG               /* 信号总量上限 */
+    //MAX_PUB_SIG               /* 信号总量上限 */
 };
 
 /* 2. 暴露 Blinky 活动对象的指针给 main 函数使用 */
