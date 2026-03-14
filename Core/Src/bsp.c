@@ -14,6 +14,7 @@
 //
 //    /* 注意：在完全调试通之前，这里绝对不要加 __WFI() 或任何代码！ */
 //}
+void QS_onFlush(void);
 void QV_onIdle(void) {
     QF_INT_ENABLE();
 
@@ -47,34 +48,42 @@ void soft_delay(uint32_t ms) {
 }/* USER CODE BEGIN 4 */
 #include <stdio.h>
 
-/* QP框架的终极崩溃回调函数 */
-void Q_onAssert(char const * const module, int loc) {
+/* QP框架的终极崩溃回调函数 *//* USER CODE BEGIN 4 */
+/* USER CODE BEGIN 4 */
+/* USER CODE BEGIN 4 */
 
-    /* 1. 关门打狗：强行关闭所有硬件中断，防止任何外设再来捣乱 */
-    __disable_irq();
+#ifdef Q_SPY
 
-    /* 2. 准备遗言：把凶手的模块名和行号写进内存 */
-    char buf[128];
-    sprintf(buf, "\r\n\r\n!!! [FATAL ASSERT INSIDE QF_RUN] !!!\r\nModule: %s\r\nID/Line: %d\r\n\r\n", module, loc);
+/* ... 您之前的 QS_onStartup 和 QS_onFlush ... */
 
-    /* 3. 强行发报：抛弃所有 HAL 库，直接向 USART1 寄存器里砸数据！ */
-    /* ⚠️ 假设您用的是 USART1，如果是 USART2 请改掉 */
-    for (int i = 0; buf[i] != '\0'; i++) {
-        /* 死等发送数据寄存器空 (TXE) */
-        while ((USART1->SR & (1 << 7)) == 0) {
-        }
-        /* 砸入一个字节 */
-        USART1->DR = buf[i];
-    }
+/* 满足链接器的要求：QS 的关机清理回调函数 */
+void QS_onCleanup(void) {
+    /* 裸机系统永远不会正常退出，所以这里什么都不用写，留空即可 */
+}
 
-    /* 4. 死不瞑目：发完遗言后，让系统永远停在这里等待您收尸 */
+#endif /* Q_SPY */
+
+/* USER CODE END 4 */
+/* 新版框架的崩溃回调叫 Q_onError，且进入时框架已经自动关了中断 */
+void Q_onError(char const * const module, int loc) {
+
+#ifdef Q_SPY
+    /* 1. 生成标准的二进制崩溃日志！
+       (第三个参数 10000U 是给底层的延时缓冲，防止串口发太快导致丢包) */
+    QS_ASSERTION(module, loc, 10000U);
+
+    /* 2. 强行把刚才生成的崩溃遗言，通过我们在 bsp 里写的寄存器逻辑砸出去！ */
+    QS_onFlush();
+#endif
+
+    /* 3. 彻底死机，等待您收尸复位 */
     while (1) {
     }
 }
 
 /* USER CODE END 4 */
-/* USER CODE BEGIN 4 */
-/* USER CODE BEGIN 4 */
+
+/* USER CODE END 4 */
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 

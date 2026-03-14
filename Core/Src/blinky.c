@@ -42,7 +42,7 @@ uint16_t Calcu_LCD_Y(uint16_t raw_y) {
 typedef struct {
     QActive super;       // 继承 QActive 基类
     QTimeEvt timeEvt;    // 定义一个私有时间事件 (定时器)
-    uint32_t press_count;
+    int32_t press_count;
 } Blinky;
 
 /* 2. 声明状态处理函数 */
@@ -61,7 +61,7 @@ void Blinky_ctor(void) {
     QActive_ctor(&me->super, Q_STATE_CAST(&Blinky_initial));
 
     // 初始化时间事件 (绑定到当前活动对象，发送 TIMEOUT_SIG 信号)
-    QTimeEvt_ctorX(&me->timeEvt, &me->super, TIMEOUT_SIG, 0U);
+    QTimeEvt_ctorX(&me->timeEvt, &me->super, TIMEOUT1_SIG, 0U);
 }
 
 /* 5. 初始状态 (系统刚启动时进入) *//* 在 blinky.c 文件中 */
@@ -78,22 +78,22 @@ QState Blinky_initial(Blinky * const me, QEvt const * const e) {
 #endif
 
     /* 3. 给您的定时器上发条 (之前咱们讨论过的) */
-    // QTimeEvt_armX(&me->timeEvt, TICKS_PER_MS(500U), 0U);
-    me->press_count = 0;
+    QTimeEvt_armX(&me->timeEvt, TICKS_PER_MS(5000U), TICKS_PER_MS(5000U));
+    me->press_count = 15;
     return Q_TRAN(&Blinky_on);
 }
 
 QState Blinky_off(Blinky * const me, QEvt const * const e) {
     switch (e->sig) {
         case Q_ENTRY_SIG: {
-        	QTimeEvt_armX(&me->timeEvt, TICKS_PER_MS(5000U), 0U);
+        	//QTimeEvt_armX(&me->timeEvt, TICKS_PER_MS(500U), 0U);
             //UART_Log("Enter OFF State\r\n");
             return Q_HANDLED(); /* 极其重要 */
         }
 
 
         case BTN_PA1_SIG: {
-        	me->press_count++;
+
 
         	            /* 2. 炫技时刻：用 QSPY 把数字打印到上位机！ */
         	#ifdef Q_SPY
@@ -104,10 +104,17 @@ QState Blinky_off(Blinky * const me, QEvt const * const e) {
         	            QS_END()
         	#endif
         	            /* 处理完毕，告诉框架不需要其他操作了 */
-        	            return Q_HANDLED();
+        	                me->press_count--;
+        	                        	                        	if(me->press_count<10){
+        	                        	                        		return Q_TRAN(&Blinky_on);
+        	                        	                        	}else{
+        	                        	            return Q_HANDLED();
+        	                        	                        	}
+
 
                 }
         case Q_EXIT_SIG: {
+        	//QTimeEvt_disarm(&me->timeEvt);
             return Q_HANDLED(); /* 极其重要 */
         }
         case TOUCH_SIG: {
@@ -116,7 +123,8 @@ QState Blinky_off(Blinky * const me, QEvt const * const e) {
             //UART_Log("Touch OFF! X:%04d, Y:%04d\r\n", raw_x, raw_y);
 
             /* 在 OFF 状态收到触摸，无条件跳到 ON 状态！ */
-        	return Q_HANDLED();
+        	//return Q_HANDLED();
+        	return Q_TRAN(&Blinky_on);
         }
         case TIMEOUT1_SIG: {
                    // uint16_t raw_x = XPT2046_Read_Adc(0xD0);
@@ -132,7 +140,7 @@ QState Blinky_off(Blinky * const me, QEvt const * const e) {
 QState Blinky_on(Blinky * const me, QEvt const * const e) {
     switch (e->sig) {
         case Q_ENTRY_SIG: {
-        	QTimeEvt_armX(&me->timeEvt, TICKS_PER_MS(5000U), 0U);
+        	//QTimeEvt_armX(&me->timeEvt, TICKS_PER_MS(500U), 0U);
            // UART_Log("Enter ON State\r\n");
             return Q_HANDLED(); /* 极其重要，绝不能漏 */
         }
@@ -145,7 +153,7 @@ QState Blinky_on(Blinky * const me, QEvt const * const e) {
                            return Q_TRAN(&Blinky_off);
                        }
         case BTN_PA1_SIG: {
-        	me->press_count++;
+
 
         	            /* 2. 炫技时刻：用 QSPY 把数字打印到上位机！ */
         	#ifdef Q_SPY
@@ -156,10 +164,16 @@ QState Blinky_on(Blinky * const me, QEvt const * const e) {
         	            QS_END()
         	#endif
         	            /* 处理完毕，告诉框架不需要其他操作了 */
+        	                me->press_count++;
+        	                        	if(me->press_count>20){
+        	                        		return Q_TRAN(&Blinky_off);
+        	                        	}else{
         	            return Q_HANDLED();
+        	                        	}
                 }
 
         case Q_EXIT_SIG: {
+        	//QTimeEvt_disarm(&me->timeEvt);
             return Q_HANDLED(); /* 极其重要，绝不能漏 */
         }
         case TOUCH_SIG: {
@@ -168,7 +182,8 @@ QState Blinky_on(Blinky * const me, QEvt const * const e) {
            // UART_Log("Touch ON! X:%04d, Y:%04d\r\n", raw_x, raw_y);
 
             /* 在 ON 状态收到触摸，无条件跳到 OFF 状态！不用 if 判断！ */
-        	  return Q_HANDLED();
+        	 // return Q_HANDLED();
+        	  return Q_TRAN(&Blinky_off);
         }
     }
     return Q_SUPER(&QHsm_top);
