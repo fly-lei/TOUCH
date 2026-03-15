@@ -65,6 +65,12 @@ void LCD_ShowChar(uint16_t x, uint16_t y, char chr, uint16_t fg_color, uint16_t 
 void LCD_ShowString(uint16_t x, uint16_t y, char *str, uint16_t fg_color, uint16_t bg_color);
 //static uint32_t LCD_Pow(uint8_t m, uint8_t n);
 void LCD_ShowNum(uint16_t x, uint16_t y, uint32_t num, uint8_t len, uint16_t fg_color, uint16_t bg_color);
+
+uint16_t XPT2046_Read_Adc_Smooth(uint8_t cmd);
+uint8_t TP_Read_XY(uint16_t *x, uint16_t *y);
+void Touch_Process(void);
+void LCD_Backlight_Init(void);
+void LCD_SetBrightness(uint8_t percent);
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #endif /* INC_ILI9341_H_ */

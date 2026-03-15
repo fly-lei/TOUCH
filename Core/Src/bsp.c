@@ -160,7 +160,7 @@ uint8_t QS_onStartup(void const *arg) {
     QS_SIG_DICTIONARY(NAV_DOWN_SIG, (void *)0);
     QS_SIG_DICTIONARY(NAV_ENTER_SIG, (void *)0);
     QS_SIG_DICTIONARY(NAV_BACK_SIG, (void *)0);
-
+    QS_SIG_DICTIONARY(NAV_HOME_SIG, (void *)0);
     /* 2. 极其关键：告诉框架，QS 追踪器启动成功！ */
         return 1U;
     /* ... */

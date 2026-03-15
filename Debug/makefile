@@ -56,6 +56,12 @@ default.size.stdout \
 OBJDUMP_LIST += \
 TOUCH.list \
 
+OBJCOPY_HEX += \
+TOUCH.hex \
+
+OBJCOPY_BIN += \
+TOUCH.bin \
+
 
 # All Target
 all: main-build
@@ -79,12 +85,22 @@ TOUCH.list: $(EXECUTABLES) makefile objects.list $(OPTIONAL_TOOL_DEPS)
 	@echo 'Finished building: $@'
 	@echo ' '
 
+TOUCH.hex: $(EXECUTABLES) makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-objcopy  -O ihex $(EXECUTABLES) "TOUCH.hex"
+	@echo 'Finished building: $@'
+	@echo ' '
+
+TOUCH.bin: $(EXECUTABLES) makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-objcopy  -O binary $(EXECUTABLES) "TOUCH.bin"
+	@echo 'Finished building: $@'
+	@echo ' '
+
 # Other Targets
 clean:
-	-$(RM) TOUCH.elf TOUCH.list TOUCH.map default.size.stdout
+	-$(RM) TOUCH.bin TOUCH.elf TOUCH.hex TOUCH.list TOUCH.map default.size.stdout
 	-@echo ' '
 
-secondary-outputs: $(SIZE_OUTPUT) $(OBJDUMP_LIST)
+secondary-outputs: $(SIZE_OUTPUT) $(OBJDUMP_LIST) $(OBJCOPY_HEX) $(OBJCOPY_BIN)
 
 fail-specified-linker-script-missing:
 	@echo 'Error: Cannot find the specified linker script. Check the linker settings in the build configuration.'

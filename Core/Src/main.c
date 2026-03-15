@@ -18,10 +18,12 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "dma.h"
+#include "tim.h"
 #include "usart.h"
 #include "gpio.h"
 #include "fsmc.h"
-#include "ILI9341.h"
+
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "signals.h"
@@ -54,10 +56,12 @@ void SystemClock_Config(void);
 /* 1. 为两个活动对象分配各自的事件队列 */
 static QEvt const * app_queueSto[10];
 static QEvt const * gui_queueSto[10];
+static QEvt const *modbusQueueSto[10];
+extern uint8_t dma_rx_buf[256];
 
 /* 2. 极其致命的内存池！给 Q_NEW 分配 10 个 UIUpdateEvt 大小的快递盒 */
 static QF_MPOOL_EL(UIUpdateEvt) sm_poolSto[10];
-
+static QF_MPOOL_EL(MbRxEvt) sm_mbPoolSto[4];
 extern void App_ctor(void);
 extern void Gui_ctor(void);
 /* USER CODE END PFP */
@@ -96,12 +100,26 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_USART1_UART_Init();
   MX_FSMC_Init();
-  ILI9341_Init();
-  LCD_Clear(BLACK);
+  MX_TIM2_Init();
+  MX_USART3_UART_Init();
+  MX_UART4_Init();
   /* USER CODE BEGIN 2 */
+  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
+
+  LCD_Backlight_Init();
+
+  ILI9341_Init();
   QF_init(); /* 初始化 QP 框架 */
+  QF_poolInit(sm_mbPoolSto, sizeof(sm_mbPoolSto), sizeof(sm_mbPoolSto[0]));
+
+      /* 👇 4. 挂上 DMA 空挡，开启第一帧的监听雷达！ */
+      HAL_UART_Receive_DMA(&huart4, dma_rx_buf, 256);
+
+      /* 👇 5. 开启 USART3 的 IDLE 空闲中断！(绝大多数人死在忘写这句) */
+      __HAL_UART_ENABLE_IT(&huart4, UART_IT_IDLE);
 
 #ifdef Q_SPY
 
@@ -112,8 +130,7 @@ int main(void)
 
 #endif
 
-      /* 3. 必须初始化事件内存池！否则 Q_NEW 会当场死机！ */
-      QF_poolInit(sm_poolSto, sizeof(sm_poolSto), sizeof(sm_poolSto[0]));
+
 #ifdef Q_SPY
       QS_OBJ_DICTIONARY(sm_poolSto);
 #endif
@@ -121,7 +138,7 @@ int main(void)
       /* 4. 构造对象 */
       App_ctor();
       Gui_ctor();
-
+      Modbus_ctor();
       /* 5. 启动两个活动对象 (注意优先级不要相同) */
       QACTIVE_START(AO_App,
                     1U,               /* 优先级 1 */
@@ -132,6 +149,10 @@ int main(void)
                     2U,               /* 优先级 2 (GUI 往往需要高响应) */
                     gui_queueSto, Q_DIM(gui_queueSto),
                     (void *)0, 0U, (QEvt *)0);
+      QACTIVE_START(AO_Modbus,
+                         3U,               /* 优先级 2 (GUI 往往需要高响应) */
+						 modbusQueueSto, Q_DIM(modbusQueueSto),
+                         (void *)0, 0U, (QEvt *)0);
 
       return QF_run(); /* 把控制权交给框架 */
   /* USER CODE END 2 */

@@ -17,9 +17,19 @@ enum AppSignals {
     NAV_DOWN_SIG,
     NAV_ENTER_SIG,
     NAV_BACK_SIG,
-
+	NAV_HOME_SIG,
+	 MB_RX_FRAME_SIG, /* 👇 新增：串口收到了一帧完整的 Modbus 报文 */
+	 MB_TX_DONE_SIG,
     MAX_PUB_SIG,
 };
+
+
+/* 定义 Modbus 接收事件的“快递盒” */
+typedef struct {
+    QEvt super;
+    uint8_t frame[256]; /* Modbus RTU 一帧最大 256 字节 */
+    uint16_t len;       /* 收到的有效长度 */
+} MbRxEvt;
 /* ... 结构体保持不变 ... */
 
 /* 2. 定义带有数据的自定义事件 (快递盒) */
@@ -31,5 +41,7 @@ typedef struct {
 /* 3. 声明两个活动对象的全局指针，方便互相发消息 */
 extern QActive * const AO_App;
 extern QActive * const AO_Gui;
+extern QActive * const AO_Modbus;
+
 
 #endif /* SIGNALS_H */

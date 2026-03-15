@@ -7,6 +7,11 @@
 
 #include "ILI9341.h"
 
+#include "signals.h"
+
+/* 定义滑动判断的阈值 (滑动超过 40 像素算一次有效的上下切换) */
+#define SWIPE_THRESHOLD 40
+
 /* ========================================================= */
 /* 1. 硬件寄存器宏定义 (如果您已经放在 .h 里了，这两行会忽略) */
 /* ========================================================= */
@@ -14,7 +19,14 @@
 #define LCD_REG  (*((volatile uint16_t *)0x60000000)) // RS=0, 发送命令
 #define LCD_DATA (*((volatile uint16_t *)0x60020000)) // RS=1, 发送数据
 #endif
+#define LCD_WIDTH  240
+#define LCD_HEIGHT 320
 
+/* ！！！根据您实测数据量身定制的极值参数 ！！！ */
+#define XPT_X_MIN  170    /* 左边缘平均值 (194+152)/2 */
+#define XPT_X_MAX  1800   /* 右边缘平均值 (1778+1827)/2 */
+#define XPT_Y_MIN  120    /* 上边缘平均值 (128+114)/2 */
+#define XPT_Y_MAX  1930   /* 下边缘平均值 (1924+1930)/2 */
 
 /* ========================================================= */
 /* 2. 最底层的原子函数 (必须放在最前面，防止编译器不认识) */
@@ -261,4 +273,243 @@ void LCD_ShowNum(uint16_t x, uint16_t y, uint32_t num, uint8_t len, uint16_t fg_
         /* 利用 ASCII 码规律：数字 0 的 ASCII 是 48 (也就是 '0') */
         LCD_ShowChar(x + 8 * t, y, temp + '0', fg_color, bg_color);
     }
+}
+
+
+
+
+
+
+/* T_CS: PD13, T_CLK: PE0, T_MOSI: PE2, T_MISO: PE3, T_IRQ: PE4 */
+#define T_CS_LOW()    HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, GPIO_PIN_RESET)
+#define T_CS_HIGH()   HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, GPIO_PIN_SET)
+
+#define T_CLK_LOW()   HAL_GPIO_WritePin(GPIOE, GPIO_PIN_0, GPIO_PIN_RESET)
+#define T_CLK_HIGH()  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_0, GPIO_PIN_SET)
+
+#define T_MOSI_LOW()  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_2, GPIO_PIN_RESET)
+#define T_MOSI_HIGH() HAL_GPIO_WritePin(GPIOE, GPIO_PIN_2, GPIO_PIN_SET)
+
+#define T_MISO_READ() HAL_GPIO_ReadPin(GPIOE, GPIO_PIN_3)
+#define T_IRQ_READ()  HAL_GPIO_ReadPin(GPIOE, GPIO_PIN_4)
+
+/* 软件模拟 SPI 发送并接收一个字节 */
+uint8_t XPT2046_WriteRead(uint8_t data) {
+    uint8_t i, res = 0;
+    for (i = 0; i < 8; i++) {
+        if (data & 0x80) T_MOSI_HIGH(); else T_MOSI_LOW();
+        data <<= 1;
+        T_CLK_LOW();
+        T_CLK_HIGH(); // 上升沿采样
+        res <<= 1;
+        if (T_MISO_READ()) res |= 0x01;
+    }
+    return res;
+}
+
+/* 读取指定的 ADC 通道（X 或 Y） */
+uint16_t XPT2046_Read_Adc(uint8_t cmd) {
+    uint16_t res = 0;
+    T_CS_LOW();
+    XPT2046_WriteRead(cmd);
+    // XPT2046 需要一点时间转换，这里读回 16 位，取高 12 位
+    res = XPT2046_WriteRead(0x00) << 8;
+    res |= XPT2046_WriteRead(0x00);
+    T_CS_HIGH();
+    return res >> 4; // 12 位有效数据
+}
+
+
+
+/* ========================================================= */
+/* XPT2046 触摸屏中间件 (防抖 + 校准映射)                    */
+/* ========================================================= */
+
+/* XPT2046 的读取命令字 (不同厂家的模块可能XY相反，如果上下左右错乱，把这两个宏互换即可) */
+#define CMD_RDY 0x90  /* 读取 Y 轴 ADC 的命令 */
+#define CMD_RDX 0xD0  /* 读取 X 轴 ADC 的命令 */
+
+/* ！！！极其关键的校准参数 (需要您根据实际屏幕微调) ！！！ */
+#define XPT_X_MIN  300    /* 屏幕最左侧的 ADC 值 */
+#define XPT_X_MAX  3800   /* 屏幕最右侧的 ADC 值 */
+#define XPT_Y_MIN  300    /* 屏幕最上方的 ADC 值 */
+#define XPT_Y_MAX  3800   /* 屏幕最下方的 ADC 值 */
+
+/**
+ * @brief  多次采样求平均算法 (极其霸道的软件滤波，专治指针乱跳！)
+ */
+uint16_t XPT2046_Read_Adc_Smooth(uint8_t cmd) {
+    uint8_t i, j;
+    uint16_t buf[5]; /* 连读 5 次 */
+    uint16_t temp;
+
+    for (i = 0; i < 5; i++) buf[i] = XPT2046_Read_Adc(cmd);
+
+    /* 冒泡排序，把极端噪点踢到两边 */
+    for (i = 0; i < 4; i++) {
+        for (j = i + 1; j < 5; j++) {
+            if (buf[i] > buf[j]) {
+                temp = buf[i]; buf[i] = buf[j]; buf[j] = temp;
+            }
+        }
+    }
+    /* 掐头去尾，只取中间 3 个稳定值的平均数 */
+    return (buf[1] + buf[2] + buf[3]) / 3;
+}
+/* ========================================================= */
+/* XPT2046 触摸屏中间件 (完美校准版)                         */
+/* ========================================================= */
+
+
+uint8_t TP_Read_XY(uint16_t *x, uint16_t *y) {
+    uint16_t adc_x, adc_y;
+
+    adc_x = XPT2046_Read_Adc_Smooth(CMD_RDX);
+    adc_y = XPT2046_Read_Adc_Smooth(CMD_RDY);
+
+    /* 1. 越界保护 (极度关键！防止计算时出现负数或溢出炸毁坐标) */
+    if (adc_x < XPT_X_MIN) adc_x = XPT_X_MIN;
+    if (adc_x > XPT_X_MAX) adc_x = XPT_X_MAX;
+    if (adc_y < XPT_Y_MIN) adc_y = XPT_Y_MIN;
+    if (adc_y > XPT_Y_MAX) adc_y = XPT_Y_MAX;
+
+    /* 2. 完美的线性压缩映射 (把 170~1800 映射到 0~240) */
+    *x = (uint32_t)(adc_x - XPT_X_MIN) * LCD_WIDTH / (XPT_X_MAX - XPT_X_MIN);
+    *y = (uint32_t)(adc_y - XPT_Y_MIN) * LCD_HEIGHT / (XPT_Y_MAX - XPT_Y_MIN);
+
+    return 1;
+}
+/**
+ * @brief  判断屏幕是否正在被按下
+ * @return 1: 按下, 0: 松开
+ */
+uint8_t TP_Is_Pressed(void) {
+    /* 大多数 XPT2046 模块都有一个 PENIRQ (T_PEN) 引脚，低电平代表按下。
+       如果您有这个引脚的读取宏 (比如 T_PEN_READ())，直接 return (T_PEN_READ() == 0);
+       如果没有，可以用下面这种读取 Z 轴压力或假读 ADC 的方式判断：*/
+
+    // return (T_PEN_READ() == 0); /* 推荐做法 */
+
+    /* 备用做法：如果读出来的 X 轴 ADC 值为 0 或极大值，说明没被按下 (开路状态) */
+    uint16_t test_adc = XPT2046_Read_Adc(CMD_RDX);
+    if (test_adc > 100 && test_adc < 4000) return 1;
+    return 0;
+}
+
+
+
+/**
+ * @brief  触摸屏周期性扫描与手势识别函数
+ * @note   建议每 20ms ~ 50ms 调用一次此函数
+ */
+void Touch_Process(void) {
+    static uint16_t start_x = 0, start_y = 0;
+    static uint8_t  is_touching = 0;
+    static uint8_t  gesture_handled = 0; /* 防止长按滑动时连续触发多次 */
+
+    uint16_t current_x, current_y;
+
+    /* 1. 如果屏幕正在被触摸 (请替换为您的底层判断逻辑) */
+    if (TP_Is_Pressed()) {
+
+        /* 读取当前 X, Y 坐标 (请替换为您的底层读取函数) */
+        TP_Read_XY(&current_x, &current_y);
+		#ifdef Q_SPY
+        /* 每隔一段时间打印一次，防止日志刷爆 */
+        static uint8_t print_cnt = 0;
+        if (++print_cnt > 10) {
+            print_cnt = 0;
+            QS_BEGIN_ID(QS_USER, 0)
+                QS_STR("Touch-> X:"); QS_U32(3, current_x);
+                QS_STR(" Y:");        QS_U32(3, current_y);
+            QS_END()
+        }
+#endif
+
+        if (!is_touching) {
+            /* 刚刚按下的瞬间：记录起点坐标 */
+            start_x = current_x;
+            start_y = current_y;
+            is_touching = 1;
+            gesture_handled = 0;
+        } else if (!gesture_handled) {
+            /* 正在滑动中：实时计算 Y 轴差值，判断手势 */
+            int16_t delta_y = current_y - start_y;
+
+            if (delta_y > SWIPE_THRESHOLD) {
+                /* 手指往下滑动：投递“向下”信号 */
+                static QEvt const navDownEvt = QEVT_INITIALIZER(NAV_DOWN_SIG);
+                QACTIVE_POST(AO_Gui, &navDownEvt, 0U);
+                gesture_handled = 1; /* 标记已处理，松手前不再触发 */
+            }
+            else if (delta_y < -SWIPE_THRESHOLD) {
+                /* 手指往上滑动：投递“向上”信号 */
+                static QEvt const navUpEvt = QEVT_INITIALIZER(NAV_UP_SIG);
+                QACTIVE_POST(AO_Gui, &navUpEvt, 0U);
+                gesture_handled = 1;
+            }
+        }
+    }
+    /* 2. 手指松开的瞬间 */
+    else {
+        if (is_touching) {
+            /* 如果松开前没有触发过滑动，说明这是一次“点击(Tap)”动作 */
+            if (!gesture_handled) {
+
+                /* 判断点击落在了哪个区域 (热点映射) */
+                if (start_y > (LCD_HEIGHT - 40)) {
+                    /* 热点 1：点击了底部区域 */
+                    if (start_x < (LCD_WIDTH / 2)) {
+                        /* 底部左侧：HOME 键 */
+                        static QEvt const navHomeEvt = QEVT_INITIALIZER(NAV_HOME_SIG);
+                        QACTIVE_POST(AO_Gui, &navHomeEvt, 0U);
+                    } else {
+                        /* 底部右侧：BACK 或 MENU 键 */
+                        static QEvt const navBackEvt = QEVT_INITIALIZER(NAV_BACK_SIG);
+                        QACTIVE_POST(AO_Gui, &navBackEvt, 0U);
+                    }
+                } else {
+                    /* 热点 2：点击了屏幕中上部 (视为确认/进入菜单) */
+                    static QEvt const navEnterEvt = QEVT_INITIALIZER(NAV_ENTER_SIG);
+                    QACTIVE_POST(AO_Gui, &navEnterEvt, 0U);
+                }
+            }
+            is_touching = 0; /* 重置触摸状态 */
+        }
+    }
+}
+
+/* ========================================================= */
+/* LCD 背光强力驱动函数                                      */
+/* ========================================================= */
+void LCD_Backlight_Init(void) {
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+    /* 1. 开启 GPIOA 的硬件时钟 (极其关键，不开心跳芯片不干活) */
+    __HAL_RCC_GPIOA_CLK_ENABLE();
+
+    /* 2. 强行配置 PA15 为推挽输出 (推挽模式才能爆发出足够的驱动电流！) */
+    GPIO_InitStruct.Pin = GPIO_PIN_15;
+    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;  /* 推挽输出 */
+    GPIO_InitStruct.Pull = GPIO_NOPULL;          /* 不用上下拉 */
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;/* 高速响应 */
+    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+    /* 3. 终极指令：拉高 PA15，释放 100% 背光电能！ */
+    /* 注意：有些屏幕是低电平点亮，如果 SET 不亮，请改成 RESET 试试 */
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_SET);
+}
+/* 引入 TIM2 的句柄 (由 CubeMX 自动生成在 main.c 中) */
+extern TIM_HandleTypeDef htim2;
+
+/**
+ * @brief  LCD 无级亮度调节
+ * @param  percent: 亮度百分比 (0 ~ 100)
+ */
+void LCD_SetBrightness(uint8_t percent) {
+    if (percent > 100) percent = 100;
+
+    /* 强行修改 TIM2_CH1 的 PWM 比较寄存器 (CCR) */
+    /* 因为我们把 ARR 设成了 100，所以 CCR 填 percent 就是占空比百分比！ */
+    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, percent);
 }
