@@ -68,7 +68,9 @@ extern void Touch_Process(void);
 
 /* External variables --------------------------------------------------------*/
 extern DMA_HandleTypeDef hdma_uart4_rx;
+extern DMA_HandleTypeDef hdma_uart4_tx;
 extern DMA_HandleTypeDef hdma_usart3_rx;
+extern DMA_HandleTypeDef hdma_usart3_tx;
 extern UART_HandleTypeDef huart4;
 extern UART_HandleTypeDef huart3;
 /* USER CODE BEGIN EV */
@@ -216,11 +218,11 @@ void SysTick_Handler(void)
   /* USER CODE END SysTick_IRQn 0 */
   HAL_IncTick();
   /* USER CODE BEGIN SysTick_IRQn 1 */
-  static uint8_t touch_tick = 0;
-     if (++touch_tick >= 30) {
-         touch_tick = 0;
-         Touch_Process(); /* 呼叫咱们刚刚写的触摸翻译官！ */
-     }
+//  static uint8_t touch_tick = 0;
+//     if (++touch_tick >= 30) {
+//         touch_tick = 0;
+//         Touch_Process(); /* 呼叫咱们刚刚写的触摸翻译官！ */
+//     }
   /* USER CODE END SysTick_IRQn 1 */
 }
 
@@ -302,6 +304,34 @@ void DMA1_Stream2_IRQHandler(void)
 }
 
 /**
+  * @brief This function handles DMA1 stream3 global interrupt.
+  */
+void DMA1_Stream3_IRQHandler(void)
+{
+  /* USER CODE BEGIN DMA1_Stream3_IRQn 0 */
+
+  /* USER CODE END DMA1_Stream3_IRQn 0 */
+  HAL_DMA_IRQHandler(&hdma_usart3_tx);
+  /* USER CODE BEGIN DMA1_Stream3_IRQn 1 */
+
+  /* USER CODE END DMA1_Stream3_IRQn 1 */
+}
+
+/**
+  * @brief This function handles DMA1 stream4 global interrupt.
+  */
+void DMA1_Stream4_IRQHandler(void)
+{
+  /* USER CODE BEGIN DMA1_Stream4_IRQn 0 */
+
+  /* USER CODE END DMA1_Stream4_IRQn 0 */
+  HAL_DMA_IRQHandler(&hdma_uart4_tx);
+  /* USER CODE BEGIN DMA1_Stream4_IRQn 1 */
+
+  /* USER CODE END DMA1_Stream4_IRQn 1 */
+}
+
+/**
   * @brief This function handles USART3 global interrupt.
   */
 void USART3_IRQHandler(void)
@@ -323,6 +353,15 @@ void USART3_IRQHandler(void)
              计算公式：大水缸总容量 - DMA 还没搬运完的数量 = 实际收到的长度 */
           uint16_t rx_len = 256 - __HAL_DMA_GET_COUNTER(huart3.hdmarx);
 
+
+          /* 如果您板子上有 LED，比如 PC13，让它翻转一下！ */
+                  // HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+
+          #ifdef Q_SPY
+                  QS_BEGIN_ID(QS_USER, 0)
+                      QS_STR("MB RX LEN:"); QS_U32(3, rx_len);
+                  QS_END()
+          #endif
           /* 6. 只要收到了数据，就打包发给业务大脑！ */
           if (rx_len > 0 && rx_len < 256) {
 

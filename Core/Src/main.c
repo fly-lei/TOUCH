@@ -116,10 +116,10 @@ int main(void)
   QF_poolInit(sm_mbPoolSto, sizeof(sm_mbPoolSto), sizeof(sm_mbPoolSto[0]));
 
       /* 👇 4. 挂上 DMA 空挡，开启第一帧的监听雷达！ */
-      HAL_UART_Receive_DMA(&huart4, dma_rx_buf, 256);
+      HAL_UART_Receive_DMA(&huart3, dma_rx_buf, 256);
 
       /* 👇 5. 开启 USART3 的 IDLE 空闲中断！(绝大多数人死在忘写这句) */
-      __HAL_UART_ENABLE_IT(&huart4, UART_IT_IDLE);
+      __HAL_UART_ENABLE_IT(&huart3, UART_IT_IDLE);
 
 #ifdef Q_SPY
 

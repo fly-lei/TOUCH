@@ -28,6 +28,67 @@
 /* 在 gui.c 顶部声明 */
 static uint8_t current_brightness = 100; /* 默认 100% 亮度 */
 
+/* 定义极其纯粹的导航信号快递盒 (不用带数据) */
+//static const QEvt back_evt  = { NAV_BACK_SIG,  0U, 0U };
+//static const QEvt home_evt  = { NAV_HOME_SIG,  0U, 0U };
+//static const QEvt enter_evt = { NAV_ENTER_SIG, 0U, 0U };
+
+/**
+ * @brief 触摸坐标读取与碰撞翻译 (由 GUI 状态机在安全环境下调用)
+ *//**
+ * @brief 触摸坐标读取与碰撞翻译 (带分辨率升维算法)
+ */
+void GUI_Touch_Process_EXTI(void) {
+    uint16_t raw_x, raw_y; /* 底层读出来的原始“小坐标” */
+    uint16_t x, y;         /* 映射后的屏幕“真实坐标” */
+
+    if (TP_Read_XY(&raw_x, &raw_y)) {
+
+        /* ========================================================= */
+        /* 1. 极其关键的坐标系“升维”映射算法                           */
+        /* ========================================================= */
+        /* 将 X轴 (0~105) 放大到 (0~240) */
+        x = (raw_x * 240) / 105;
+
+        /* 将 Y轴 (0~139) 放大到 (0~320) */
+        y = (raw_y * 320) / 139;
+
+        /* 加上极其严谨的防越界装甲 */
+        if (x > 240) x = 240;
+        if (y > 320) y = 320;
+
+#ifdef Q_SPY
+        QS_BEGIN_ID(QS_USER, 0)
+            QS_STR("Mapped X:"); QS_U16(3, x);
+            QS_STR(" Y:"); QS_U16(3, y);
+        QS_END()
+#endif
+
+        /* ========================================================= */
+        /* 2. 完美的 240x320 物理热区碰撞检测                          */
+        /* ========================================================= */
+
+        /* 【右下角】：触发 BACK 或 MENU (X: 140~240, Y: 270~320) */
+        if (x > 140 && x <= 240 && y > 270 && y <= 320) {
+        	 static QEvt const back_evt = QEVT_INITIALIZER(NAV_BACK_SIG);
+        	 //QACTIVE_POST(AO_Gui, &navDownEvt, 0U); /* 直接发给 GUI 部门！ */
+            QACTIVE_POST(AO_Gui, &back_evt, 0U);
+        }
+
+        /* 【左下角】：触发 HOME (X: 0~100, Y: 270~320) */
+        else if (x > 0 && x <= 100 && y > 270 && y <= 320) {
+        	 static QEvt const home_evt = QEVT_INITIALIZER(NAV_HOME_SIG);
+            QACTIVE_POST(AO_Gui, &home_evt, 0U);
+        }
+
+        /* 【中间区域】：触发 ENTER (X: 50~190, Y: 100~200) */
+        else if (x > 50 && x < 190 && y > 100 && y < 200) {
+        	 static QEvt const enter_evt = QEVT_INITIALIZER(NAV_ENTER_SIG);
+            QACTIVE_POST(AO_Gui, &enter_evt, 0U);
+        }
+    }
+}
+
 /* 极其优雅的局部刷新进度条函数 */
 void Draw_ProgressBar(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint8_t percent) {
     uint16_t fill_w = (width * percent) / 100; /* 计算高亮部分的宽度 */
@@ -69,6 +130,24 @@ void Gui_ctor(void) {
 }
 
 
+/* 在 gui.c 顶部提前声明 */
+static QState Gui_top(Gui * const me, QEvt const * const e);
+
+/* 👇 新增这个极其强大的全局父状态 👇 */
+static QState Gui_top(Gui * const me, QEvt const * const e) {
+    switch (e->sig) {
+
+        /* 全局拦截：无论在哪个页面，只要收到中断急电，立刻开始处理触摸！ */
+        case TOUCH_DETECTED_SIG: {
+
+            /* 在这里安全地调用总线读取函数，绝对不会卡死中断！ */
+            GUI_Touch_Process_EXTI();
+
+            return Q_HANDLED();
+        }
+    }
+    return Q_SUPER(&QHsm_top);
+}
 /* 2. 待机状态：专门拆快递、画屏幕 */
 static QState Gui_idle(Gui * const me, QEvt const * const e) {
     switch (e->sig) {
@@ -89,7 +168,7 @@ static QState Gui_idle(Gui * const me, QEvt const * const e) {
             return Q_HANDLED();
         }
     }
-    return Q_SUPER(&QHsm_top);
+    return Q_SUPER(&Gui_top);
 }
 
 /* gui.c 继续 ... */
@@ -151,7 +230,7 @@ static QState Gui_page_ScoreView(Gui * const me, QEvt const * const e) {
             return Q_HANDLED();
         }
     }
-    return Q_SUPER(&QHsm_top);
+    return Q_SUPER(&Gui_top);
 }
 /* ========================================================= */
 /* 页面 0：首页 (Home) */
@@ -172,7 +251,7 @@ static QState Gui_page_Home(Gui * const me, QEvt const * const e) {
             return Q_TRAN(&Gui_page_MainMenu);
         }
     }
-    return Q_SUPER(&QHsm_top);
+    return Q_SUPER(&Gui_top);
 }
 
 /* ========================================================= */
@@ -218,7 +297,7 @@ static QState Gui_page_MainMenu(Gui * const me, QEvt const * const e) {
             return Q_TRAN(&Gui_page_Home);
         }
     }
-    return Q_SUPER(&QHsm_top);
+    return Q_SUPER(&Gui_top);
 }
 
 /* ========================================================= */
@@ -255,7 +334,7 @@ static QState Gui_page_SubFunc(Gui * const me, QEvt const * const e) {
             return Q_TRAN(&Gui_page_Home);
         }
     }
-    return Q_SUPER(&QHsm_top);
+    return Q_SUPER(&Gui_top);
 }
 
 /* ========================================================= */
@@ -300,7 +379,7 @@ static QState Gui_page_SubSet(Gui * const me, QEvt const * const e) {
             return Q_TRAN(&Gui_page_Home);
         }
     }
-    return Q_SUPER(&QHsm_top);
+    return Q_SUPER(&Gui_top);
 }
 /* ========================================================= */
 /* 页面 4：亮度调节页 (Brightness Control)                     */
@@ -345,5 +424,5 @@ UPDATE_UI:
             return Q_TRAN(&Gui_page_SubSet);
         }
     }
-    return Q_SUPER(&QHsm_top);
+    return Q_SUPER(&Gui_top);
 }

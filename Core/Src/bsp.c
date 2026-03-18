@@ -110,9 +110,9 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 	            QACTIVE_POST(AO_App, &btnEvt, 0U);     /* 发给大脑部门去算数！ */
 	            valid_press = 1;
 	        }
-	        else if (GPIO_Pin == GPIO_PIN_4) { /* 假设 PE2 是“确认进入”按键 */
-	            static QEvt const navEnterEvt = QEVT_INITIALIZER(NAV_ENTER_SIG);
-	            QACTIVE_POST(AO_Gui, &navEnterEvt, 0U);
+	        else if (GPIO_Pin == GPIO_PIN_4) { /* 假设 PE4 是“”触摸信号 */
+	            static QEvt const navTouchEvt = QEVT_INITIALIZER(TOUCH_DETECTED_SIG);
+	            QACTIVE_POST(AO_Gui, &navTouchEvt, 0U);
 	            valid_press = 1;
 	        }
 	        else if (GPIO_Pin == GPIO_PIN_3) { /* 假设 PE3 是“返回/退出”按键 */

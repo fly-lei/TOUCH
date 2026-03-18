@@ -9,7 +9,7 @@ uint16_t g_mb_regs[10001] = {0};
 typedef struct {
     QActive super;
 } Modbus;
-extern UART_HandleTypeDef huart4;
+extern UART_HandleTypeDef huart3;
 static Modbus l_modbus; /* 实例对象 */
 QActive * const AO_Modbus = &l_modbus.super;
 uint16_t MB_CRC16(const uint8_t *puchMsg, uint16_t usDataLen);
@@ -35,20 +35,48 @@ static QState Modbus_idle(Modbus * const me, QEvt const * const e) {
 
         /* 收到完整报文！开始疯狂解析 */
         case MB_RX_FRAME_SIG: {
-            MbRxEvt const *pe = (MbRxEvt const *)e;
-            uint8_t slave_id = pe->frame[0];
-            uint8_t func_code = pe->frame[1];
+        	/* 1. 极其严谨：所有变量声明必须顶格放在大括号最前面！ */
+        	            MbRxEvt const *pe = (MbRxEvt const *)e;
+        	            uint8_t slave_id;
+        	            uint8_t func_code;
+        	            uint16_t crc_calc;
+        	            uint16_t crc_recv;
 
-            /* 1. 过滤：是不是发给我的？(假设本机 ID 为 1) */
-            if (slave_id != 1) return Q_HANDLED();
+        	            /* 必须加 static！保证函数结束后，内存依然存活供 DMA 慢慢搬运！ */
+        	            static uint8_t tx_buf[256];
+        	            uint16_t tx_len = 0;
 
-            /* 2. 极其严苛的 CRC16 校验 (假设您有一个 MB_CRC16 函数) */
-            // uint16_t crc_calc = MB_CRC16(pe->frame, pe->len - 2);
-            // uint16_t crc_recv = pe->frame[pe->len - 2] | (pe->frame[pe->len - 1] << 8);
-            // if (crc_calc != crc_recv) return Q_HANDLED();
+        	            /* 2. 防爆甲：如果收到的全是噪点碎片(小于4字节)，直接丢弃，防止数组越界死机！ */
+        	            if (pe->len < 4) {
+        	                return Q_HANDLED();
+        	            }
 
-            uint8_t tx_buf[256];
-            uint16_t tx_len = 0;
+        	            /* 3. 变量赋值与 CRC 计算 */
+        	            slave_id  = pe->frame[0];
+        	            func_code = pe->frame[1];
+        	            crc_calc  = MB_CRC16(pe->frame, pe->len - 2);
+        	            /* Modbus 协议规定 CRC 低位在前，高位在后 */
+        	            crc_recv  = pe->frame[pe->len - 2] | (pe->frame[pe->len - 1] << 8);
+
+        	            /* 👇 4. 架构师的照妖镜 (QSPY 探针) 👇 */
+        	#ifdef Q_SPY
+        	            QS_BEGIN_ID(QS_USER, 0)
+        	                QS_STR("ID:"); QS_U8(1, slave_id);
+        	                QS_STR(" FC:"); QS_U8(1, func_code);
+        	                QS_STR(" Calc:"); QS_U16(4, crc_calc);
+        	                QS_STR(" Recv:"); QS_U16(4, crc_recv);
+        	            QS_END()
+        	#endif
+
+        	            /* 5. 第一堵墙：站号过滤 (假设本机 ID 是 1) */
+        	            if (slave_id != 1) {
+        	                return Q_HANDLED();
+        	            }
+
+        	            /* 6. 第二堵墙：CRC 校验 (如果您只是想跑通，可以先把这行注释掉！) */
+        	            if (crc_calc != crc_recv) {
+        	                return Q_HANDLED();
+        	            }
 
             /* 3. 核心业务：功能码分发路由 */
             switch (func_code) {
@@ -120,7 +148,8 @@ static QState Modbus_idle(Modbus * const me, QEvt const * const e) {
 
                             /* 👇 改用新的串口句柄进行 DMA 发送 👇 */
 
-                            HAL_UART_Transmit_DMA(&huart4, tx_buf, tx_len);
+                            HAL_UART_Transmit_DMA(&huart3, tx_buf, tx_len);
+                           // HAL_UART_Transmit(&huart3, tx_buf, tx_len, 100);
                         }
 
             return Q_HANDLED();
