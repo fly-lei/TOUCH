@@ -80,13 +80,28 @@ SECTIONS
   } >FLASH
 
   /* Constant data into "FLASH" Rom type memory */
+  
   .rodata :
   {
     . = ALIGN(4);
     *(.rodata)         /* .rodata sections (constants, strings, etc.) */
     *(.rodata*)        /* .rodata* sections (constants, strings, etc.) */
+    
+    /* 👇 ====== 架构师加塞：eLab 自动装载区 ====== 👇 */
+    . = ALIGN(4);      /* 极其关键：强制 4 字节对齐，防止内存错位死机！ */
+    PROVIDE(__start_elab_export = .); /* 记录车厢的车头地址 */
+    KEEP(*(elab_export))              /* KEEP：警告编译器绝对不准删！ */
+    PROVIDE(__stop_elab_export = .);  /* 记录车厢的车尾地址 */
+    . = ALIGN(4);
+    /* 👆 ========================================= 👆 */
+
     . = ALIGN(4);
   } >FLASH
+  
+  
+  
+  
+  
 
   .ARM.extab (READONLY) : /* The "READONLY" keyword is only supported in GCC11 and later, remove it if using GCC10 or earlier. */
   {

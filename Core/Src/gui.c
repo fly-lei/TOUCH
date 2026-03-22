@@ -14,16 +14,14 @@
 #define PERCENT_Y(percent)    ((LCD_HEIGHT * (percent)) / 100)
 
 /* ========================================================= */
-/* 宏定义 (确保 gui.c 顶部有这些) */
-/* ========================================================= */
-#define STR_WIDTH(chars)      ((chars) * 8) /* 标准尺寸下，每个字符宽度固定为 8 */
-#define CENTER_X(text_width)  ((LCD_WIDTH - (text_width)) / 2)
-#define PERCENT_Y(percent)    ((LCD_HEIGHT * (percent)) / 100)
+
 
 /* 👇 1. 屏幕尺寸宏定义 (假设当前是 240x320 的竖屏) */
 #define LCD_WIDTH  240
 #define LCD_HEIGHT 320
 
+
+#include "elab_device.h"
 
 /* 在 gui.c 顶部声明 */
 static uint8_t current_brightness = 100; /* 默认 100% 亮度 */
@@ -108,6 +106,9 @@ void Draw_ProgressBar(uint16_t x, uint16_t y, uint16_t width, uint16_t height, u
 /* 1. 显示部门自己的私有结构体 */
 typedef struct {
     QActive super;
+    QTimeEvt blink_timer;   /* 咱们用来控制闪烁的闹钟 */
+    /* 👇 极其关键：用来缓存咱们找到的 LED 设备指针 👇 */
+    elab_device_t *led_dev;
 } Gui;
 
 static Gui l_gui;
@@ -127,6 +128,7 @@ static QState Gui_page_Brightness(Gui * const me, QEvt const * const e);
 static uint8_t menu_cursor = 0;
 void Gui_ctor(void) {
     QActive_ctor(&l_gui.super, Q_STATE_CAST(&Gui_initial));
+    QTimeEvt_ctorX(&l_gui.blink_timer, &l_gui.super, BLINK_TICK_SIG, 0U);
 }
 
 
@@ -177,6 +179,7 @@ static QState Gui_idle(Gui * const me, QEvt const * const e) {
 static QState Gui_initial(Gui * const me, QEvt const * const e);
 static QState Gui_page_MainMenu(Gui * const me, QEvt const * const e);
 static QState Gui_page_ScoreView(Gui * const me, QEvt const * const e);
+static QState App_TestLED(Gui * const me, QEvt const * const e);
 
 /* 记录当前选中的菜单项 (0 或 1) */
 
@@ -191,11 +194,105 @@ static QState Gui_initial(Gui * const me, QEvt const * const e) {
     QS_FUN_DICTIONARY(&Gui_page_MainMenu);
     QS_FUN_DICTIONARY(&Gui_page_ScoreView);
     QS_FUN_DICTIONARY(&Gui_page_Home);
+    QS_FUN_DICTIONARY(&App_TestLED);
 #endif
     /* 开机直接进入主菜单！ */
     return Q_TRAN(&Gui_page_Home);
 }
 /* ... */
+
+
+
+/* 假设您的 QSPY 用户自定义信号是 QS_USER_00，如果您定义了其他的请自行替换 */
+
+static QState App_TestLED(Gui * const me, QEvt const * const e) {
+    switch (e->sig) {
+
+        case Q_ENTRY_SIG: {
+            /* 探头 1：监控是否成功切入该状态 */
+            QS_BEGIN(QS_USER0, 0);
+            QS_STR("=> [App_TestLED] ENTRY!");
+            QS_END();
+
+            me->led_dev = elab_device_find("led_status");
+
+            if (me->led_dev != NULL) {
+                /* 探头 2A：设备寻找成功！打印设备的内存地址看看 */
+                QS_BEGIN(QS_USER0, 0);
+                QS_STR("SUCCESS: 'led_status' found at 0x");
+                QS_U32_HEX(8,(uint32_t)me->led_dev);
+                QS_END();
+
+                __device_enable(me->led_dev, true);
+                QS_BEGIN(QS_USER0, 0);
+                                QS_STR("-> 2. Enable passed! Arming timer...");
+                                QS_END();
+
+                                /* 探雷 2：启动闹钟 */
+                                QTimeEvt_armX(&me->blink_timer, 500, 500);
+
+                                QS_BEGIN(QS_USER0, 0);
+                                QS_STR("-> 3. Timer armed! Survived ENTRY!");
+                                QS_END();
+                /* 启动 500ms 的闪烁闹钟 */
+
+            } else {
+                /* 探头 2B：设备寻找失败！ */
+                QS_BEGIN(QS_USER0, 0);
+                QS_STR("ERROR: 'led_status' NOT FOUND!");
+                QS_END();
+            }
+            return Q_HANDLED();
+        }
+
+
+        case NAV_HOME_SIG: {
+                    QS_BEGIN(QS_USER0, 0);
+                    QS_STR("-> Got HOME Signal! Switching state...");
+                    QS_END();
+
+                    /* 👇 2. 极其丝滑地切回主页状态 (请替换成您实际的主页状态名，比如 Gui_MainMenu) 👇 */
+                    return Q_TRAN(&Gui_page_MainMenu);
+                }
+
+
+        case BLINK_TICK_SIG: {
+            /* 探头 3：监控闹钟是否在滴答作响 */
+            QS_BEGIN(QS_USER0, 0);
+            QS_STR("-> TICK!");
+            QS_END();
+
+            if (me->led_dev != NULL) {
+                uint8_t cmd = 2; /* 翻转电平命令 */
+                int32_t ret = elab_device_write(me->led_dev, 0, &cmd, sizeof(cmd));
+
+                /* 探头 4：监控底层 write 函数的执行结果 */
+                QS_BEGIN(QS_USER0, 0);
+                QS_STR("Write CMD=2, Ret=");
+                QS_I32(8,ret);
+                QS_END();
+            }
+            return Q_HANDLED();
+        }
+
+        case Q_EXIT_SIG: {
+            /* 探头 5：监控是否异常退出了该状态 */
+            QS_BEGIN(QS_USER0, 0);
+            QS_STR("<= [App_TestLED] EXIT!");
+            QS_END();
+
+            QTimeEvt_disarm(&me->blink_timer);
+            if (me->led_dev != NULL) {
+                __device_enable(me->led_dev, false);
+                me->led_dev = NULL;
+            }
+            return Q_HANDLED();
+        }
+    }
+    return Q_SUPER(&Gui_top);
+}
+
+
 
 /* ========================================================= */
 /* 页面 2：计分板详情页 (接收大脑发来的计数数据) */
@@ -318,9 +415,9 @@ static QState Gui_page_SubFunc(Gui * const me, QEvt const * const e) {
             LCD_ShowString(LCD_WIDTH - 50, LCD_HEIGHT - 20, "BACK", WHITE, DARKBLUE);
             return Q_HANDLED();
         }
-        case NAV_DOWN_SIG: {
+        case TOUCH_DETECTED_SIG: {
             menu_cursor = (menu_cursor + 1) % 3;
-            return Q_TRAN(&Gui_page_SubFunc);
+            return Q_TRAN(&App_TestLED);
         }
         case NAV_UP_SIG: {
             menu_cursor = (menu_cursor == 0) ? 2 : menu_cursor - 1;

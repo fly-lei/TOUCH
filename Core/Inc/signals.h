@@ -20,6 +20,7 @@ enum AppSignals {
 	NAV_HOME_SIG,
 	 MB_RX_FRAME_SIG, /* 👇 新增：串口收到了一帧完整的 Modbus 报文 */
 	 MB_TX_DONE_SIG,
+	 BLINK_TICK_SIG,
     MAX_PUB_SIG,
 };
 

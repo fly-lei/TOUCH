@@ -13,6 +13,8 @@ RM := rm -rf
 -include qpc/src/qs/subdir.mk
 -include qpc/src/qf/subdir.mk
 -include qpc/ports/arm-cm/qv/gnu/subdir.mk
+-include elab/init/subdir.mk
+-include elab/driver/subdir.mk
 -include Drivers/STM32F4xx_HAL_Driver/Src/subdir.mk
 -include Core/Startup/subdir.mk
 -include Core/Src/subdir.mk

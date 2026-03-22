@@ -64,6 +64,8 @@ static QF_MPOOL_EL(UIUpdateEvt) sm_poolSto[10];
 static QF_MPOOL_EL(MbRxEvt) sm_mbPoolSto[4];
 extern void App_ctor(void);
 extern void Gui_ctor(void);
+extern void elab_auto_init(void);
+extern void LED_Device_Init(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -113,6 +115,9 @@ int main(void)
 
   ILI9341_Init();
   QF_init(); /* 初始化 QP 框架 */
+ // LED_Device_Init();
+  elab_auto_init();
+
   QF_poolInit(sm_mbPoolSto, sizeof(sm_mbPoolSto), sizeof(sm_mbPoolSto[0]));
 
       /* 👇 4. 挂上 DMA 空挡，开启第一帧的监听雷达！ */
