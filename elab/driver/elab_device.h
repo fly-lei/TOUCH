@@ -106,16 +106,36 @@ typedef struct elab_device
     void *user_data;
 } elab_device_t;
 
-typedef struct elab_dev_ops
-{
-    elab_err_t (* enable)(elab_device_t *me, bool status);
-    int32_t (* read)(elab_device_t *me, uint32_t pos, void *buffer, uint32_t size);
-    int32_t (* write)(elab_device_t *me, uint32_t pos, const void *buffer, uint32_t size);
+/* elab_device.h */
+
+/* ========================================================= */
+/* 架构师定义的全局标准控制指令 (可以根据需要无限扩充)         */
+/* ========================================================= */
+#define ELAB_IOCTL_ERASE_SECTOR   0x01  /* 擦除扇区 (参数: uint32_t 扇区地址) */
+#define ELAB_IOCTL_ERASE_CHIP     0x02  /* 擦除全片 (参数: NULL) */
+#define ELAB_IOCTL_SET_BAUDRATE   0x03  /* 设置波特率 (参数: uint32_t 波特率) */
+#define ELAB_IOCTL_GET_SIZE       0x04  /* 获取容量 (参数: uint32_t * 接收容量的指针) */
+typedef struct elab_device elab_device_t;
+typedef struct elab_dev_ops elab_dev_ops_t;
+/* 接口图纸升级：加入 ctrl */
+typedef struct elab_dev_ops {
+    elab_err_t (*enable)(elab_device_t *me, bool status);
+    int32_t    (*read)(elab_device_t *me, uint32_t pos, void *buffer, uint32_t size);
+    int32_t    (*write)(elab_device_t *me, uint32_t pos, const void *buffer, uint32_t size);
+
 #if (ELAB_DEV_PALTFORM == ELAB_PALTFORM_POLL)
     void (* poll)(elab_device_t *me);
     elab_err_t (* isr_enable)(elab_device_t *me, bool status);
 #endif
+    /* 👇 皇冠宝石：控制接口 👇 */
+    int32_t    (*ctrl)(elab_device_t *me, int32_t cmd, void *arg);
 } elab_dev_ops_t;
+
+/* 暴露给应用层的统一 API */
+int32_t elab_device_ioctl(elab_device_t *me, int32_t cmd, void *arg);
+
+
+
 
 #define ELAB_DEVICE_CAST(_dev)      ((elab_device_t *)_dev)
 

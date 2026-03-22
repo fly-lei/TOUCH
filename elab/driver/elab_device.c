@@ -250,4 +250,22 @@ static void _add_device(elab_device_t *me)
     _edf_table[_edf_device_count ++] = me;
 }
 
+/* elab_device.c 内部 */
+
+int32_t elab_device_ioctl(elab_device_t *me, int32_t cmd, void *arg)
+{
+    /* 1. 防野指针：确保设备存在，且底层确实实现了 ctrl 函数！ */
+    if (me == NULL || me->ops == NULL || me->ops->ctrl == NULL) {
+        return -1;
+    }
+
+    /* 2. 防断电操作：必须是 enable 通电状态才能发控制指令！ */
+    if (me->enable_count == 0) {
+        return -2;
+    }
+
+    /* 3. 完美放行：踢给底层真实的物理驱动 */
+    return me->ops->ctrl(me, cmd, arg);
+}
+
 /* ----------------------------- end of file -------------------------------- */

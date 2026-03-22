@@ -109,6 +109,11 @@ typedef struct {
     QTimeEvt blink_timer;   /* 咱们用来控制闪烁的闹钟 */
     /* 👇 极其关键：用来缓存咱们找到的 LED 设备指针 👇 */
     elab_device_t *led_dev;
+    elab_device_t *eeprom_dev;
+    elab_device_t *flash_dev;
+
+
+
 } Gui;
 
 static Gui l_gui;
@@ -180,7 +185,8 @@ static QState Gui_initial(Gui * const me, QEvt const * const e);
 static QState Gui_page_MainMenu(Gui * const me, QEvt const * const e);
 static QState Gui_page_ScoreView(Gui * const me, QEvt const * const e);
 static QState App_TestLED(Gui * const me, QEvt const * const e);
-
+static QState App_TestEEPROM(Gui * const me, QEvt const * const e);
+static QState App_TestFlash(Gui * const me, QEvt const * const e);
 /* 记录当前选中的菜单项 (0 或 1) */
 
 
@@ -195,13 +201,160 @@ static QState Gui_initial(Gui * const me, QEvt const * const e) {
     QS_FUN_DICTIONARY(&Gui_page_ScoreView);
     QS_FUN_DICTIONARY(&Gui_page_Home);
     QS_FUN_DICTIONARY(&App_TestLED);
+    QS_FUN_DICTIONARY(&App_TestEEPROM);
+    QS_FUN_DICTIONARY(&App_TestFlash);
+
 #endif
     /* 开机直接进入主菜单！ */
     return Q_TRAN(&Gui_page_Home);
 }
 /* ... */
 
+/* 在您的应用层代码中 (比如 gui.c) */
 
+
+
+
+
+static QState App_TestFlash(Gui * const me, QEvt const * const e) {
+    switch (e->sig) {
+
+        /* ========================================================= */
+        /* 1. 进门：寻找设备，刺入探针校验 JEDEC ID                    */
+        /* ========================================================= */
+        case Q_ENTRY_SIG: {
+            me->flash_dev = elab_device_find("flash_w25q128");
+
+            if (me->flash_dev != NULL) {
+                /* 通电瞬间，底层会自动发 0x9F 命令读取芯片 ID */
+                if (__device_enable(me->flash_dev, true) == ELAB_OK) {
+                    QS_BEGIN(QS_USER0, 0);
+                    QS_STR("W25Q128 Init OK! (JEDEC ID Matched)");
+                    QS_END();
+
+                    /* 极其优雅：启动一个 10 毫秒后只响一次的单次闹钟！ */
+                    /* (不阻塞 ENTRY，让系统先完成状态切换) */
+                    QTimeEvt_armX(&me->blink_timer, 10, 0);
+                } else {
+                    QS_BEGIN(QS_USER0, 0);
+                    QS_STR("ERROR: W25Q128 JEDEC ID Mismatch or SPI failed!");
+                    QS_END();
+                }
+            } else {
+                QS_BEGIN(QS_USER0, 0);
+                QS_STR("ERROR: 'flash_w25q128' not found in VFS!");
+                QS_END();
+            }
+            return Q_HANDLED();
+        }
+        /* 闹钟响：执行暴力的擦除、写入与核对测试 */
+                case BLINK_TICK_SIG: {
+                    if (me->flash_dev != NULL) {
+                        uint32_t test_addr = 0x000000;
+                        char write_msg[] = "eLab VFS W25Q128 Test Success!";
+                        char read_buf[64] = {0};
+
+                        /* 步骤 A：写前必擦！使用纯洁的 IOCTL 发送指令！ */
+                        QS_BEGIN(QS_USER0, 0); QS_STR("1. IOCTL: Erasing Sector 0..."); QS_END();
+
+                        /* 👇 极其优雅：通过统一接口发送擦除命令和地址参数！ 👇 */
+                        elab_device_ioctl(me->flash_dev, ELAB_IOCTL_ERASE_SECTOR, &test_addr);
+
+                        /* 步骤 B：跨过 VFS 极其爽快地写入 */
+                        QS_BEGIN(QS_USER0, 0); QS_STR("2. Writing Data..."); QS_END();
+                        elab_device_write(me->flash_dev, test_addr, write_msg, sizeof(write_msg));
+
+                        /* 步骤 C：跨过 VFS 极其爽快地读取 */
+                        QS_BEGIN(QS_USER0, 0); QS_STR("3. Reading Data back..."); QS_END();
+                        elab_device_read(me->flash_dev, test_addr, read_buf, sizeof(write_msg));
+
+                        QS_BEGIN(QS_USER0, 0);
+                        QS_STR("=> Result: "); QS_STR(read_buf);
+                        QS_END();
+                    }
+                    return Q_HANDLED();
+                }
+
+
+        /* ========================================================= */
+        /* 3. 出门：环保扫尾，关闭设备                                 */
+        /* ========================================================= */
+        case Q_EXIT_SIG: {
+            QTimeEvt_disarm(&me->blink_timer);
+            if (me->flash_dev != NULL) {
+                __device_enable(me->flash_dev, false);
+                me->flash_dev = NULL;
+            }
+            return Q_HANDLED();
+        }
+
+        /* 接收返回主页的信号 (如果有的话) */
+        case NAV_HOME_SIG: {
+            return Q_TRAN(&Gui_page_MainMenu);
+        }
+    }
+    return Q_SUPER(&Gui_top);
+}
+
+
+static QState App_TestEEPROM(Gui * const me, QEvt const * const e) {
+    switch (e->sig) {
+
+        case Q_ENTRY_SIG: {
+            /* 1. 就像找之前的 LED 一样，根据名字把 EEPROM 揪出来！ */
+            me->eeprom_dev = elab_device_find("eeprom_24c02");
+
+            if (me->eeprom_dev != NULL) {
+                /* 2. 通电！(底层会自动去探测 I2C 总线上有没有这颗芯片) */
+                if (__device_enable(me->eeprom_dev, true) == ELAB_OK) {
+
+                    /* ===== 爽快操作 1：写数据 ===== */
+                    char write_msg[] = "Hello eLab VFS! by leify test";
+                    /* 极其无脑：往 EEPROM 的地址(pos) 0x10 的位置，写入这段字符串！ */
+                    int32_t w_len = elab_device_write(me->eeprom_dev, 0x10, write_msg, sizeof(write_msg));
+
+                    QS_BEGIN(QS_USER0, 0);
+                    QS_STR("EEPROM Written: "); QS_I32(0, w_len); QS_STR(" bytes.");
+                    QS_END();
+
+                    /* ===== 爽快操作 2：读数据 ===== */
+                    char read_buf[256] = {0};
+                    /* 极其无脑：从 EEPROM 的地址(pos) 0x10 的位置，读出刚写的数据！ */
+                    int32_t r_len = elab_device_read(me->eeprom_dev, 0x10, read_buf, sizeof(write_msg));
+
+                    QS_BEGIN(QS_USER0, 0);
+                    QS_STR("EEPROM Read Back: "); QS_STR(read_buf);
+                    QS_END();
+                } else {
+                    QS_BEGIN(QS_USER0, 0); QS_STR("I2C Chip Not Found!"); QS_END();
+                }
+            }
+            return Q_HANDLED();
+        }
+
+        case TOUCH_DETECTED_SIG: {
+                    menu_cursor = (menu_cursor + 1) % 3;
+                    return Q_TRAN(&App_TestFlash);
+                }
+        case NAV_HOME_SIG: {
+                            QS_BEGIN(QS_USER0, 0);
+                            QS_STR("-> Got HOME Signal! Switching state...");
+                            QS_END();
+
+                            /* 👇 2. 极其丝滑地切回主页状态 (请替换成您实际的主页状态名，比如 Gui_MainMenu) 👇 */
+                            return Q_TRAN(&Gui_page_MainMenu);
+                        }
+        case Q_EXIT_SIG: {
+            /* 走的时候极其环保地释放设备 */
+            if (me->eeprom_dev != NULL) {
+                __device_enable(me->eeprom_dev, false);
+                me->eeprom_dev = NULL;
+            }
+            return Q_HANDLED();
+        }
+    }
+    return Q_SUPER(&Gui_top);
+}
 
 /* 假设您的 QSPY 用户自定义信号是 QS_USER_00，如果您定义了其他的请自行替换 */
 
@@ -244,6 +397,10 @@ static QState App_TestLED(Gui * const me, QEvt const * const e) {
             }
             return Q_HANDLED();
         }
+        case TOUCH_DETECTED_SIG: {
+                    menu_cursor = (menu_cursor + 1) % 3;
+                    return Q_TRAN(&App_TestEEPROM);
+                }
 
 
         case NAV_HOME_SIG: {
