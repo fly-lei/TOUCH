@@ -6,6 +6,7 @@
 "./Core/Src/dev_led.o"
 "./Core/Src/dev_w25q128.o"
 "./Core/Src/dma.o"
+"./Core/Src/flight_recorder.o"
 "./Core/Src/fsmc.o"
 "./Core/Src/gpio.o"
 "./Core/Src/gui.o"

@@ -98,25 +98,6 @@ void NMI_Handler(void)
 /**
   * @brief This function handles Hard fault interrupt.
   */
-void HardFault_Handler(void)
-{
-  /* USER CODE BEGIN HardFault_IRQn 0 */
-  __disable_irq(); /* 关门，封锁现场 */
-
-  char const *msg = "\r\n\r\n!!! [HARD FAULT DETECTED] !!!\r\nMCU Crashed!\r\n";
-
-  /* 用 USART1 强行把遗言砸出去！ */
-  for (int i = 0; msg[i] != '\0'; i++) {
-      while ((USART1->SR & (1 << 7)) == 0) { }
-      USART1->DR = msg[i];
-  }
-  /* USER CODE END HardFault_IRQn 0 */
-  while (1)
-  {
-    /* USER CODE BEGIN W1_HardFault_IRQn 0 */
-    /* USER CODE END W1_HardFault_IRQn 0 */
-  }
-}
 
 /**
   * @brief This function handles Memory management fault.

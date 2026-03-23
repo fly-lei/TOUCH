@@ -6,16 +6,88 @@
 #include "ILI9341.h"
 
 /* USER CODE BEGIN 4 */
-/* 映射公式: (原始值 - 最小值) * 目标范围 / (最大值 - 最小值) */
-// 这里假设 X 和 Y 的原始值范围大约在 200 到 3800 之间（具体需看您的打印）
-//void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin);
-/* QV 框架强制要求的空闲处理回调函数 */
-//void QV_onIdle(void) {
-//    /* 【生命之源】告诉内核：我已准备好接收新的中断！ */
-//	QF_INT_ENABLE();
-//
-//    /* 注意：在完全调试通之前，这里绝对不要加 __WFI() 或任何代码！ */
-//}
+
+
+
+
+
+#include "flight_recorder.h"
+
+
+#include <string.h> /* 因为您用到了 strcpy */
+/* USER CODE END Includes */
+
+/* USER CODE BEGIN EV */
+/* 👇 给编译器发放跨文件通行证！ 👇 */
+extern Flight_Recorder_t g_flight_recorder;
+extern void W25Q_Write_Panic_Dump(uint32_t addr, uint8_t *data, uint32_t size);
+/* USER CODE END EV */
+
+
+void HardFault_Handler(void)
+{
+  /* USER CODE BEGIN HardFault_IRQn 0 */
+  __disable_irq(); /* 关门，封锁现场 */
+
+  char const *msg = "\r\n\r\n!!! [HARD FAULT DETECTED] !!!\r\nMCU Crashed!\r\n";
+
+  /* 用 USART1 强行把遗言砸出去！ */
+  for (int i = 0; msg[i] != '\0'; i++) {
+      while ((USART1->SR & (1 << 7)) == 0) { }
+      USART1->DR = msg[i];
+  }
+
+  strcpy(g_flight_recorder.death_cause, "HardFault");
+      g_flight_recorder.death_location = 0xDEAD;
+      W25Q_Write_Panic_Dump(PANIC_SECTOR_ADDR, (uint8_t*)&g_flight_recorder, sizeof(Flight_Recorder_t));
+      HAL_GPIO_WritePin(GPIOB, GPIO_PIN_2, GPIO_PIN_SET);
+      while(1) { }
+      //NVIC_SystemReset();
+  /* USER CODE END HardFault_IRQn 0 */
+
+}
+
+
+
+
+
+
+
+
+
+
+
+/* 引入外部全局 RAM 黑匣子 */
+extern Flight_Recorder_t g_flight_recorder;
+
+/* 声明一个绕过 VFS、纯底层的极速轮询写入函数 (下面第 4 步会实现) */
+extern void W25Q_Write_Panic_Dump(uint32_t addr, uint8_t *data, uint32_t size);
+
+/* QP 框架的终极断言回调函数 (当系统跑飞或校验失败时触发) */
+void Q_onAssert(char const * const module, int loc) {
+    /* 1. 关门打狗：立刻屏蔽全局所有中断！此时 SysTick 停止，RTOS 死亡！ */
+    __disable_irq();
+
+    /* 2. 填写临终遗书：谁杀了我？ */
+    for(int i=0; i<15 && module[i] != '\0'; i++) {
+        g_flight_recorder.death_cause[i] = module[i];
+    }
+    g_flight_recorder.death_cause[15] = '\0';
+    g_flight_recorder.death_location = loc;
+
+    /* 3. 绝命倾倒 (Core Dump)！ */
+    /* 由于开机时已经预擦除过了，这里直接调用极速轮询 SPI 把几百字节砸进 Flash，耗时约 2ms */
+    W25Q_Write_Panic_Dump(PANIC_SECTOR_ADDR, (uint8_t*)&g_flight_recorder, sizeof(Flight_Recorder_t));
+
+    /* 4. 倾倒完毕，安心赴死。强制 CPU 软复位！ */
+    NVIC_SystemReset();
+}
+
+
+
+
+
+
 void QS_onFlush(void);
 void QV_onIdle(void) {
     QF_INT_ENABLE();
@@ -67,21 +139,22 @@ void QS_onCleanup(void) {
 
 /* USER CODE END 4 */
 /* 新版框架的崩溃回调叫 Q_onError，且进入时框架已经自动关了中断 */
-void Q_onError(char const * const module, int loc) {
-
-#ifdef Q_SPY
-    /* 1. 生成标准的二进制崩溃日志！
-       (第三个参数 10000U 是给底层的延时缓冲，防止串口发太快导致丢包) */
-    QS_ASSERTION(module, loc, 10000U);
-
-    /* 2. 强行把刚才生成的崩溃遗言，通过我们在 bsp 里写的寄存器逻辑砸出去！ */
-    QS_onFlush();
-#endif
-
-    /* 3. 彻底死机，等待您收尸复位 */
-    while (1) {
-    }
-}
+//
+//void Q_onError(char const * const module, int loc) {
+//
+//#ifdef Q_SPY
+//    /* 1. 生成标准的二进制崩溃日志！
+//       (第三个参数 10000U 是给底层的延时缓冲，防止串口发太快导致丢包) */
+//    QS_ASSERTION(module, loc, 10000U);
+//
+//    /* 2. 强行把刚才生成的崩溃遗言，通过我们在 bsp 里写的寄存器逻辑砸出去！ */
+//    QS_onFlush();
+//#endif
+//
+//    /* 3. 彻底死机，等待您收尸复位 */
+//    while (1) {
+//    }
+//}
 
 /* USER CODE END 4 */
 

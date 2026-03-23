@@ -11,6 +11,7 @@
 #include "elab_export.h"
 #include "stm32f4xx_hal.h"
 #include "qpc.h"
+#include "flight_recorder.h"
 /* ================================================================== */
 /* 硬件参数与指令集配置                                                 */
 /* ================================================================== */
@@ -224,3 +225,111 @@ static void W25Q128_Auto_Register(void) {
 
 /* 魔法发动！给它一张 Level 3 的自动装载入场券 */
 INIT_EXPORT(W25Q128_Auto_Register, 3);
+
+
+
+
+void W25Q_Write_Panic_Dump(uint32_t addr, uint8_t *data, uint32_t size) {
+
+    /* ========================================================= */
+    /* 🔪 1. 物理级洗脑与驱魔 (极其致命的防御)                      */
+    /* ========================================================= */
+    /* 强行拉高 CS，切断 Flash 可能正在进行的任何错乱通讯 */
+    W25Q_CS_HIGH();
+    for(volatile int i = 0; i < 1000; i++); /* 给 Flash 一点物理喘息时间 */
+
+    /* 强行撕毁 HAL 库的锁机制 */
+    hspi1.Lock = HAL_UNLOCKED;
+    hspi1.State = HAL_SPI_STATE_READY;
+
+    /* 强行重启 SPI 硬件，并彻底斩断所有 DMA 控制权！(防止幽灵 DMA 吞噬数据) */
+    __HAL_SPI_DISABLE(&hspi1);
+    CLEAR_BIT(hspi1.Instance->CR2, SPI_CR2_TXDMAEN | SPI_CR2_RXDMAEN);
+    __HAL_SPI_ENABLE(&hspi1);
+
+    /* ========================================================= */
+    /* 🚀 2. 极速跨页写入引擎 (纯轮询，无视 SysTick)                */
+    /* ========================================================= */
+    uint32_t page_remain = 256 - (addr % 256);
+    if (size <= page_remain) page_remain = size;
+
+    while (size > 0) {
+        /* 拉低 CS，发送写使能指令 (0x06) */
+        W25Q_CS_LOW();
+        uint8_t cmd_we = 0x06;
+        HAL_SPI_Transmit(&hspi1, &cmd_we, 1, HAL_MAX_DELAY);
+        W25Q_CS_HIGH();
+
+        /* 发送页编程指令 (0x02) 和 24 位地址 */
+        uint8_t cmd[4];
+        cmd[0] = 0x02;
+        cmd[1] = (uint8_t)((addr >> 16) & 0xFF);
+        cmd[2] = (uint8_t)((addr >> 8) & 0xFF);
+        cmd[3] = (uint8_t)(addr & 0xFF);
+
+        W25Q_CS_LOW();
+        HAL_SPI_Transmit(&hspi1, cmd, 4, HAL_MAX_DELAY);
+
+        /* 强行灌入这段内存数据 */
+        HAL_SPI_Transmit(&hspi1, data, page_remain, HAL_MAX_DELAY);
+        W25Q_CS_HIGH();
+
+        /* 死等芯片内部电荷泵烧录完毕 (查询状态寄存器 1 的 BUSY 位) */
+        uint8_t status;
+        uint8_t cmd_rs = 0x05;
+        do {
+            W25Q_CS_LOW();
+            HAL_SPI_Transmit(&hspi1, &cmd_rs, 1, HAL_MAX_DELAY);
+            HAL_SPI_Receive(&hspi1, &status, 1, HAL_MAX_DELAY);
+            W25Q_CS_HIGH();
+        } while ((status & 0x01) == 0x01); /* 只要 BUSY 是 1 就死等 */
+
+        /* 移动指针准备处理下一页的数据 */
+        addr += page_remain;
+        data += page_remain;
+        size -= page_remain;
+        page_remain = (size > 256) ? 256 : size;
+    }
+}
+
+/* ========================================================= */
+/* 黑匣子专用：裸机极速读取与擦除 (彻底无视 VFS 与 RTOS)       */
+/* ========================================================= */
+
+/* 1. 裸机极速读 */
+void W25Q_Read_Panic_Dump(uint32_t addr, uint8_t *data, uint32_t size) {
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET); /* 您的真实 CS 引脚 PC13 */
+
+    uint8_t cmd[4] = {0x03, (uint8_t)(addr >> 16), (uint8_t)(addr >> 8), (uint8_t)addr};
+    HAL_SPI_Transmit(&hspi1, cmd, 4, HAL_MAX_DELAY);
+    HAL_SPI_Receive(&hspi1, data, size, HAL_MAX_DELAY);
+
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+}
+
+/* 2. 裸机极速擦除 (扇区 4KB) */
+void W25Q_Erase_Panic_Dump(uint32_t addr) {
+    /* 写使能 */
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+    uint8_t cmd_we = 0x06;
+    HAL_SPI_Transmit(&hspi1, &cmd_we, 1, HAL_MAX_DELAY);
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+
+    /* 扇区擦除指令 (0x20) */
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+    uint8_t cmd[4] = {0x20, (uint8_t)(addr >> 16), (uint8_t)(addr >> 8), (uint8_t)addr};
+    HAL_SPI_Transmit(&hspi1, cmd, 4, HAL_MAX_DELAY);
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+
+    /* 死等擦除完成 */
+    uint8_t status;
+    uint8_t cmd_rs = 0x05;
+    do {
+        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+        HAL_SPI_Transmit(&hspi1, &cmd_rs, 1, HAL_MAX_DELAY);
+        HAL_SPI_Receive(&hspi1, &status, 1, HAL_MAX_DELAY);
+        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+    } while ((status & 0x01) == 0x01);
+}
+
+

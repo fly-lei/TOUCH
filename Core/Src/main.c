@@ -72,6 +72,9 @@ extern void LED_Device_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+/* main.c 内部 */
+#include "flight_recorder.h"
+#include "elab_device.h"
 
 /* USER CODE END 0 */
 
@@ -143,6 +146,8 @@ int main(void)
 #ifdef Q_SPY
       QS_OBJ_DICTIONARY(sm_poolSto);
 #endif
+      Test_SPI_Heartbeat();
+      Check_And_Print_Panic_Dump();
 
       /* 4. 构造对象 */
       App_ctor();
@@ -224,7 +229,31 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
+/* 在 main.c 内部临时添加的心跳探针 */
 
+extern SPI_HandleTypeDef hspi1; /* 引用您的 SPI 句柄 */
+
+void Test_SPI_Heartbeat(void) {
+    uint8_t cmd[4] = {0x9F, 0x00, 0x00, 0x00}; /* 0x9F 是读取 JEDEC ID 的标准指令 */
+    uint8_t id_buf[3] = {0};
+
+    /* 暴力读取 ID */
+
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET); /* 假设 PA4 是 CS 引脚，请根据您的实际硬件修改！！！ */
+    HAL_SPI_Transmit(&hspi1, &cmd[0], 1, 100);
+    HAL_SPI_Receive(&hspi1, id_buf, 3, 100);
+
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+
+    /* 打印硬件心跳 */
+    QS_BEGIN(QS_USER0, 0);
+    QS_STR("\r\n[HARDWARE PROBE] W25Q Flash ID: ");
+    QS_U32_HEX(2, id_buf[0]); QS_STR(" ");
+    QS_U32_HEX(2, id_buf[1]); QS_STR(" ");
+    QS_U32_HEX(2, id_buf[2]);
+    QS_STR("\r\n");
+    QS_END();
+}
 /* USER CODE END 4 */
 
 /**

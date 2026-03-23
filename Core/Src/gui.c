@@ -193,6 +193,7 @@ static QState App_TestFlash(Gui * const me, QEvt const * const e);
 /* ... 构造函数保持不变 ... */
 
 static QState Gui_initial(Gui * const me, QEvt const * const e) {
+	FR_Log_Event(Gui_initial, Q_ENTRY_SIG, 0);
     (void)e;
     menu_cursor = 0; /* 默认选中第一项 */
 #ifdef Q_SPY
@@ -223,6 +224,7 @@ static QState App_TestFlash(Gui * const me, QEvt const * const e) {
         /* 1. 进门：寻找设备，刺入探针校验 JEDEC ID                    */
         /* ========================================================= */
         case Q_ENTRY_SIG: {
+        	FR_Log_Event(App_TestFlash, Q_ENTRY_SIG, 0);
             me->flash_dev = elab_device_find("flash_w25q128");
 
             if (me->flash_dev != NULL) {
@@ -245,10 +247,12 @@ static QState App_TestFlash(Gui * const me, QEvt const * const e) {
                 QS_STR("ERROR: 'flash_w25q128' not found in VFS!");
                 QS_END();
             }
+            QTimeEvt_armX(&me->blink_timer, 10, 0);
             return Q_HANDLED();
         }
         /* 闹钟响：执行暴力的擦除、写入与核对测试 */
                 case BLINK_TICK_SIG: {
+                	FR_Log_Event(App_TestFlash, BLINK_TICK_SIG, 0);
                     if (me->flash_dev != NULL) {
                         uint32_t test_addr = 0x000000;
                         char write_msg[] = "eLab VFS W25Q128 Test Success!";
@@ -333,6 +337,7 @@ static QState App_TestEEPROM(Gui * const me, QEvt const * const e) {
         }
 
         case TOUCH_DETECTED_SIG: {
+        	FR_Log_Event(App_TestEEPROM, TOUCH_DETECTED_SIG, 0);
                     menu_cursor = (menu_cursor + 1) % 3;
                     return Q_TRAN(&App_TestFlash);
                 }
